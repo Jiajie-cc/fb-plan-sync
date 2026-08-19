@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>产品规划同步表</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; color: #102033; background: #f5f7fa; line-height: 1.4; }
+
+    .doc { max-width: 1240px; margin: 0 auto; padding: 20px 18px 40px; }
+
+    .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+    h1 { font-size: 20px; margin: 0 0 4px; color: #102033; }
+    .meta { font-size: 12px; color: #5d6b7d; margin: 0; line-height: 1.6; }
+
+    .datebox { text-align: right; flex: 0 0 auto; }
+    .datebox label { font-size: 11px; color: #5d6b7d; display: block; margin-bottom: 4px; }
+    .datebox input[type="date"] { border: 1px solid #c9d2dd; border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit; color: #102033; background: #fff; }
+    .datebox .asof { font-size: 11px; color: #8a97a5; margin-top: 4px; }
+
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; margin: 6px 0 14px; }
+    .stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px; min-width: 150px; }
+    .stat .k { font-size: 11px; color: #8a97a5; }
+    .stat .v { font-size: 18px; font-weight: 800; color: #102033; font-variant-numeric: tabular-nums; }
+    .stat .v small { font-size: 11px; font-weight: 400; color: #5d6b7d; }
+
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
+    .toolbar button { border: 1px solid #c9d2dd; background: #fff; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: inherit; color: #102033; }
+    .toolbar button:hover { border-color: #2f6de1; color: #2f6de1; }
+    .toolbar button.primary { background: #2f6de1; border-color: #2f6de1; color: #fff; }
+    .toolbar button.primary:hover { background: #255cc4; color: #fff; }
+    .tb-msg { font-size: 11px; color: #5d6b7d; }
+
+    .tablewrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; }
+    table.grid { border-collapse: collapse; width: 100%; min-width: 980px; }
+    table.grid th, table.grid td { border: 1px solid #dfe6ee; padding: 6px 9px; font-size: 12px; }
+    table.grid thead th { background: linear-gradient(180deg, #3d82f0 0%, #2f6de1 100%); color: #fff; font-weight: 700; text-align: center; white-space: nowrap; letter-spacing: .2px; }
+    table.grid thead th.sub { background: #eaf2fe; color: #1d4ed8; font-weight: 600; }
+    table.grid thead th.lineh { text-align: left; }
+    table.grid td.line { text-align: left; white-space: nowrap; font-weight: 600; }
+    table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    table.grid tbody tr:nth-child(even) td { background: #fafbfd; }
+    table.grid tbody tr:hover td { background: #f2f6fc; }
+
+    table.grid td .tr { font-size: 10px; margin-left: 3px; font-weight: 600; }
+    table.grid td .tr.up { color: #1d9a4d; }
+    table.grid td .tr.down { color: #d5392f; }
+    table.grid td .tr.flat { color: #8a97a5; }
+
+    .rnull { color: #b4bec9; }
+    .r0 { color: #d5392f; font-weight: 700; }
+    .r1 { color: #e07b18; font-weight: 700; }
+    .r2 { color: #1d9a4d; font-weight: 700; }
+    .r3 { color: #0c7a3f; font-weight: 800; }
+
+    table.grid tfoot td { background: #eef3fb; font-weight: 700; border-top: 2px solid #c9d2dd; }
+    table.grid tfoot td.sum-label { text-align: left; }
+
+    table.grid input.inp { border: 1px solid #c9d2dd; border-radius: 4px; padding: 3px 6px; font-size: 12px; width: 78px; text-align: right; font-family: inherit; background: #fffdf5; font-variant-numeric: tabular-nums; }
+    table.grid input.inp:focus { outline: none; border-color: #2f6de1; box-shadow: 0 0 0 2px rgba(47,109,225,.15); background: #fff; }
+    table.grid input.name-inp { border: 1px solid #c9d2dd; border-radius: 4px; padding: 3px 6px; font-size: 12px; width: 150px; font-family: inherit; }
+    table.grid button.del { border: none; background: none; color: #d5392f; cursor: pointer; font-size: 14px; padding: 0 3px; }
+    table.grid button.del:hover { font-weight: 800; }
+
+    .foot { margin-top: 14px; font-size: 11px; color: #8a97a5; line-height: 1.7; }
+    .foot b { color: #5d6b7d; }
+
+    /* 访问密码门禁 */
+    .gate { position: fixed; inset: 0; background: rgba(16,32,51,.55); display: flex; align-items: center; justify-content: center; z-index: 999; }
+    .gate.hidden { display: none; }
+    .gate-card { background: #fff; border-radius: 12px; padding: 28px 32px; width: 320px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+    .gate-card h2 { font-size: 18px; margin: 0 0 6px; }
+    .gate-card p { font-size: 12px; color: #5d6b7d; margin: 0 0 18px; }
+    .gate-card input { width: 100%; border: 1px solid #c9d2dd; border-radius: 6px; padding: 9px 10px; font-size: 14px; text-align: center; letter-spacing: 2px; font-family: inherit; }
+    .gate-card button { margin-top: 12px; width: 100%; border: none; background: #2f6de1; color: #fff; border-radius: 6px; padding: 10px; font-size: 14px; cursor: pointer; font-family: inherit; }
+    .gate-card button:hover { background: #255cc4; }
+    .gate-msg { margin-top: 10px; font-size: 12px; color: #d5392f; min-height: 16px; }
+</style>
+</head>
+<body>
+<div id="gate" class="gate hidden">
+  <div class="gate-card">
+    <h2>🔒 产品规划同步表</h2>
+    <p>请输入访问密码查看与编辑</p>
+    <input type="password" id="pwd" placeholder="访问密码" autocomplete="off">
+    <button id="btnEnter" type="button">进入</button>
+    <div class="gate-msg" id="gateMsg"></div>
+  </div>
+</div>
+
+<div class="doc">
+  <div class="topbar">
+    <div>
+      <h1>产品规划同步表</h1>
+      <p class="meta">当前日消耗 / ROAS 按 3天·7天·14天 三个时间点展示；<b>目标日消耗</b>与<b>目标ROAS</b>为可填写列，底部自动汇总。</p>
+    </div>
+    <div class="datebox">
+      <label for="datePick">筛选当前日期</label>
+      <input type="date" id="datePick" min="2026-08-12" value="2026-08-12">
+      <div class="asof" id="asof">数据截止：2026-08-12</div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="toolbar">
+    <button id="btnAdd" class="primary" type="button">＋ 增加产品线</button>
+    <button id="btnSync" type="button">🔄 立即同步</button>
+    <button id="btnCopyText" type="button">📋 复制数据文本</button>
+    <button id="btnCopyJson" type="button">🧩 复制JSON（同步用）</button>
+    <span id="syncStatus" class="tb-msg"></span>
+    <span id="tbMsg" class="tb-msg"></span>
+  </div>
+
+  <div class="tablewrap">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th class="lineh" rowspan="2">产品线</th>
+          <th colspan="3">当前日消耗</th>
+          <th colspan="3">ROAS</th>
+          <th rowspan="2">目标日消耗<br><small>(可填写)</small></th>
+          <th rowspan="2">目标ROAS<br><small>(可填写)</small></th>
+        </tr>
+        <tr>
+          <th class="sub">3天</th>
+          <th class="sub">7天</th>
+          <th class="sub">14天</th>
+          <th class="sub">3天</th>
+          <th class="sub">7天</th>
+          <th class="sub">14天</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+      <tfoot id="tfoot"></tfoot>
+    </table>
+  </div>
+
+  <p class="foot">
+    说明：<b>当前日消耗</b>＝该产品线在对应时间窗内的平均日消耗（3天/7天/14天）；<b>ROAS</b>＝对应窗口的加权 ROAS（Σ(ROAS×消耗)/Σ消耗）。<br>
+    箭头对比：<span style="color:#1d9a4d">▲ 绿＝上升</span>、<span style="color:#d5392f">▼ 红＝下降</span>，3天列对比7天、7天列对比14天。<b>目标日消耗/目标ROAS</b>为多人共享编辑，填写即自动保存到云端，刷新即可看到他人更新。
+  </p>
+</div>
+
+<script>
+const STORAGE_KEY = 'fb-line-roas-analysis-v1';
+const SNAPSHOT_DATE = '2026-08-12';
+
+// ===== 云端配置（部署时替换这 3 个值）=====
+const CONFIG = {
+  SUPABASE_URL: 'https://mjwbividbdsmhsirnvhr.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qd2JpdmlkYmRzbWhzaXJudmhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTMxNzUsImV4cCI6MjEwMjY4OTE3NX0.zJyhhL62qsTFqhlu1hqsjKUeBMvgzuHoeOanknNVh6k',
+  PASSWORD_HASH: '120f03496082d6a72aa1f00e51bd89b7e6f8e391367eb341e97e79fc713f0fd2'   // 访问密码 woodartdeal 的 SHA-256
+};
+const CLOUD_ON = CONFIG.SUPABASE_URL.indexOf('YOUR-PROJECT') !== 0;
+
+// 产品线数据（顺序与 fb-product-spend-lines.html 一致，截止 2026-08-12）
+// s3/s7/s14 = 3/7/14天平均日消耗；r3/r7/r14 = 3/7/14天加权ROAS；tSpend/tRoas = V4 目标
+const SEED = [
+  { name:'活边吧台桌', s3:450.01, s7:472.37, s14:513.39, r3:3.59, r7:2.12, r14:2.64, tSpend:550, tRoas:3.3 },
+  { name:'餐桌', s3:731.29, s7:725.71, s14:712.55, r3:4.38, r7:4.59, r14:4.15, tSpend:800, tRoas:3.8 },
+  { name:'浮木架', s3:259.77, s7:257.07, s14:214.04, r3:1.22, r7:1.97, r14:2.96, tSpend:400, tRoas:3 },
+  { name:'升降桌', s3:311.38, s7:307.11, s14:253.47, r3:5.71, r7:3.75, r14:3.67, tSpend:450, tRoas:3.6 },
+  { name:'威士忌边桌', s3:196.52, s7:200.7, s14:140.45, r3:1.48, r7:1.85, r14:2.46, tSpend:300, tRoas:3 },
+  { name:'吧台桌', s3:238.05, s7:260.42, s14:225.11, r3:0.6, r7:1.91, r14:2, tSpend:300, tRoas:3.3 },
+  { name:'工业风吧台桌 / 工业管吧台桌', s3:75.68, s7:75.59, s14:68.27, r3:3.39, r7:3.6, r14:2.91, tSpend:200, tRoas:3.3 },
+  { name:'悬浮桌 / 折叠桌', s3:139.65, s7:124.08, s14:90.28, r3:5.74, r7:4.49, r14:3.84, tSpend:300, tRoas:3.8 },
+  { name:'餐椅 / 凳椅', s3:215.06, s7:189.75, s14:158.6, r3:6.54, r7:6.52, r14:5.65, tSpend:400, tRoas:3.5 },
+  { name:'LED浮木架 / 浮木架灯', s3:61.7, s7:63.06, s14:51.12, r3:3.1, r7:3.69, r14:3.09, tSpend:200, tRoas:3 },
+  { name:'躺椅 / 软沙发', s3:40.47, s7:39.33, s14:43.01, r3:13.26, r7:5.85, r14:3.42, tSpend:100, tRoas:3.5 },
+  { name:'目录广告', s3:165.69, s7:172.7, s14:178.08, r3:1.48, r7:1.97, r14:2.8, tSpend:300, tRoas:3.2 },
+  { name:'书架', s3:65.84, s7:66.1, s14:54.93, r3:2.96, r7:1.86, r14:3.65, tSpend:100, tRoas:3 },
+  { name:'储物柜', s3:49.76, s7:54.53, s14:42.37, r3:0, r7:0.06, r14:2.29, tSpend:90, tRoas:2.8 },
+  { name:'Waterfall家具', s3:0, s7:0, s14:5.88, r3:null, r7:null, r14:0, tSpend:null, tRoas:null },
+  { name:'脚凳长凳', s3:0, s7:0, s14:3.32, r3:null, r7:null, r14:0, tSpend:null, tRoas:null },
+  { name:'玄关长凳鞋柜', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
+  { name:'餐车', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
+  { name:'活边家具', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
+  { name:'其他', s3:2.93, s7:21.64, s14:29.25, r3:0, r7:0, r14:0, tSpend:150, tRoas:2 },
+  { name:'餐盘', s3:20.8, s7:8.92, s14:4.46, r3:0, r7:0, r14:0, tSpend:60, tRoas:2.7 },
+  { name:'活边玄关桌', s3:19.2, s7:25.12, s14:16.63, r3:0, r7:1.01, r14:2.31, tSpend:80, tRoas:2.8 },
+  { name:'活边长凳', s3:0, s7:1.7, s14:0.85, r3:null, r7:0, r14:0, tSpend:120, tRoas:2.7 },
+  { name:'咖啡桌', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:100, tRoas:2.5 }
+];
+
+let state = SEED.map(l => Object.assign({ id: l.name, custom: false }, l));
+let currentDate = SNAPSHOT_DATE;
+
+// ===== Supabase 客户端 =====
+let sb = null;
+function initSupabase() {
+  if (!CLOUD_ON) return false;
+  if (window.supabase && window.supabase.createClient) {
+    sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+    return true;
+  }
+  return false;
+}
+
+function setSyncStatus(s, isErr) {
+  const el = document.getElementById('syncStatus');
+  if (el) { el.textContent = s; el.style.color = isErr ? '#d5392f' : '#1d9a4d'; }
+}
+
+function num(v) { return (v === null || v === undefined || Number.isNaN(v)) ? null : v; }
+function money(v) {
+  if (v === null || v === undefined) return '—';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function roasText(v) { return (v === null || v === undefined) ? '—' : v.toFixed(2); }
+function roasClass(v) {
+  if (v === null || v === undefined) return 'rnull';
+  if (v <= 0) return 'r0';
+  if (v < 2) return 'r0';
+  if (v < 3) return 'r1';
+  if (v < 4) return 'r2';
+  return 'r3';
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function parseNum(s) { s = String(s).trim(); if (s === '') return null; const n = parseFloat(s); return Number.isNaN(n) ? null : n; }
+
+function trendHtml(cur, base) {
+  if (cur === null || cur === undefined || base === null || base === undefined || base === 0) return '';
+  const pct = (cur - base) / base * 100;
+  const apct = Math.abs(pct);
+  if (apct < 0.05) return ' <span class="tr flat">→ 0.0%</span>';
+  const cls = pct > 0 ? 'up' : 'down';
+  const arrow = pct > 0 ? '▲' : '▼';
+  return ' <span class="tr ' + cls + '">' + arrow + ' ' + apct.toFixed(1) + '%</span>';
+}
+
+function spendCell(val, cur, base) {
+  if (val === null || val === undefined) return '—';
+  return money(val) + trendHtml(cur, base);
+}
+
+function build() {
+  const tbody = document.getElementById('tbody');
+  let html = '';
+  state.forEach((l, i) => {
+    const nameCell = l.custom
+      ? '<input class="name-inp" data-i="' + i + '" type="text" value="' + esc(l.name) + '" placeholder="新产品线名称"> <button class="del" data-i="' + i + '" title="删除该行">×</button>'
+      : esc(l.name);
+    html += '<tr>' +
+      '<td class="line">' + nameCell + '</td>' +
+      '<td class="num">' + spendCell(l.s3, l.s3, l.s7) + '</td>' +
+      '<td class="num">' + spendCell(l.s7, l.s7, l.s14) + '</td>' +
+      '<td class="num">' + (l.s14 === null || l.s14 === undefined ? '—' : money(l.s14)) + '</td>' +
+      '<td class="num ' + roasClass(l.r3) + '">' + roasText(l.r3) + '</td>' +
+      '<td class="num ' + roasClass(l.r7) + '">' + roasText(l.r7) + '</td>' +
+      '<td class="num ' + roasClass(l.r14) + '">' + roasText(l.r14) + '</td>' +
+      '<td class="num"><input class="inp" data-i="' + i + '" data-f="tSpend" type="number" step="0.01" min="0" value="' + (l.tSpend === null || l.tSpend === undefined ? '' : l.tSpend) + '" placeholder="填"></td>' +
+      '<td class="num"><input class="inp" data-i="' + i + '" data-f="tRoas" type="number" step="0.01" min="0" value="' + (l.tRoas === null || l.tRoas === undefined ? '' : l.tRoas) + '" placeholder="填"></td>' +
+      '</tr>';
+  });
+  tbody.innerHTML = html;
+  renderSummary();
+  renderStats();
+}
+
+function renderSummary() {
+  let s3 = 0, s7 = 0, s14 = 0;
+  let wn3 = 0, wd3 = 0, wn7 = 0, wd7 = 0, wn14 = 0, wd14 = 0;
+  let tSpend = 0, tWn = 0, tWd = 0;
+  state.forEach(l => {
+    s3 += l.s3 || 0; s7 += l.s7 || 0; s14 += l.s14 || 0;
+    if (l.r3 !== null && l.r3 !== undefined && l.s3 > 0) { wn3 += l.r3 * l.s3; wd3 += l.s3; }
+    if (l.r7 !== null && l.r7 !== undefined && l.s7 > 0) { wn7 += l.r7 * l.s7; wd7 += l.s7; }
+    if (l.r14 !== null && l.r14 !== undefined && l.s14 > 0) { wn14 += l.r14 * l.s14; wd14 += l.s14; }
+    if (l.tSpend !== null && l.tSpend !== undefined) {
+      tSpend += l.tSpend;
+      if (l.tRoas !== null && l.tRoas !== undefined) { tWn += l.tRoas * l.tSpend; tWd += l.tSpend; }
+    }
+  });
+  const wr3 = wd3 > 0 ? wn3 / wd3 : null;
+  const wr7 = wd7 > 0 ? wn7 / wd7 : null;
+  const wr14 = wd14 > 0 ? wn14 / wd14 : null;
+  const wrTarget = tWd > 0 ? tWn / tWd : null;
+
+  document.getElementById('tfoot').innerHTML =
+    '<tr>' +
+    '<td class="sum-label">汇总 · 加权平均</td>' +
+    '<td class="num">' + money(s3) + trendHtml(s3, s7) + '</td>' +
+    '<td class="num">' + money(s7) + trendHtml(s7, s14) + '</td>' +
+    '<td class="num">' + money(s14) + '</td>' +
+    '<td class="num ' + roasClass(wr3) + '">' + roasText(wr3) + '</td>' +
+    '<td class="num ' + roasClass(wr7) + '">' + roasText(wr7) + '</td>' +
+    '<td class="num ' + roasClass(wr14) + '">' + roasText(wr14) + '</td>' +
+    '<td class="num">' + money(tSpend) + '</td>' +
+    '<td class="num ' + roasClass(wrTarget) + '">' + roasText(wrTarget) + '</td>' +
+    '</tr>';
+}
+
+function renderStats() {
+  let s3 = 0, s7 = 0, s14 = 0;
+  let tSpend = 0;
+  state.forEach(l => {
+    s3 += l.s3 || 0; s7 += l.s7 || 0; s14 += l.s14 || 0;
+    if (l.tSpend !== null && l.tSpend !== undefined) tSpend += l.tSpend;
+  });
+  document.getElementById('stats').innerHTML =
+    '<div class="stat"><div class="k">当前日消耗 · 3天</div><div class="v">' + money(s3) + '</div></div>' +
+    '<div class="stat"><div class="k">当前日消耗 · 7天</div><div class="v">' + money(s7) + '</div></div>' +
+    '<div class="stat"><div class="k">当前日消耗 · 14天</div><div class="v">' + money(s14) + '</div></div>' +
+    '<div class="stat"><div class="k">目标日消耗汇总</div><div class="v">' + money(tSpend) + '</div></div>';
+}
+
+function tbMsg(m) {
+  const el = document.getElementById('tbMsg');
+  if (el) { el.textContent = m; clearTimeout(el._t); el._t = setTimeout(() => { el.textContent = ''; }, 4000); }
+}
+
+function copyToClipboard(text, okMsg) {
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); tbMsg(okMsg); } catch (e) { tbMsg('复制失败'); }
+    document.body.removeChild(ta);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => tbMsg(okMsg)).catch(fallback);
+  } else fallback();
+}
+
+function copyText() {
+  const lines = ['产品线消耗与ROAS分析（数据截止 ' + currentDate + '）'];
+  lines.push('产品线\t3天消耗\t7天消耗\t14天消耗\t3天ROAS\t7天ROAS\t14天ROAS\t目标日消耗\t目标ROAS');
+  state.forEach(l => {
+    lines.push([l.name, num(l.s3), num(l.s7), num(l.s14), num(l.r3), num(l.r7), num(l.r14), num(l.tSpend), num(l.tRoas)]
+      .map(v => (v === null || v === undefined) ? '' : v).join('\t'));
+  });
+  copyToClipboard(lines.join('\n'), '已复制数据文本');
+}
+
+function copyJson() {
+  copyToClipboard(JSON.stringify({ app: 'fb-plan-sync', date: currentDate, state }, null, 2), '已复制JSON，可用于同步');
+}
+
+function setDate(d) {
+  currentDate = d;
+  document.getElementById('datePick').value = d;
+  document.getElementById('asof').textContent = '数据截止：' + d;
+  saveAllLocal();
+}
+
+// ===== 本地缓存（离线兜底）=====
+function saveAllLocal() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: currentDate, state })); } catch (e) {} }
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d && typeof d.date === 'string') currentDate = d.date;
+    if (d && Array.isArray(d.state) && d.state.length) {
+      d.state.forEach(x => {
+        const li = state.find(l => l.id === x.id || (l.custom === false && l.name === x.name));
+        if (li) {
+          ['tSpend', 'tRoas'].forEach(k => { if (x[k] !== undefined) li[k] = x[k]; });
+          if (li.custom && x.name) li.name = x.name;
+        } else if (x.custom) {
+          state.push(Object.assign({ s3:null,s7:null,s14:null,r3:null,r7:null,r14:null }, x, { id: x.id || ('c' + Math.random().toString(36).slice(2)) }));
+        }
+      });
+    }
+  } catch (e) {}
+}
+
+// ===== Supabase 同步 =====
+function lineRow(l, index) {
+  return {
+    line_id: l.id,
+    line_name: l.name,
+    is_custom: !!l.custom,
+    t_spend: (l.tSpend === null || l.tSpend === undefined) ? null : l.tSpend,
+    t_roas: (l.tRoas === null || l.tRoas === undefined) ? null : l.tRoas,
+    sort_order: index
+  };
+}
+
+function upsertLine(l, index) {
+  if (!sb) return;
+  sb.from('plan_lines').upsert(lineRow(l, index), { onConflict: 'line_id' }).then(({ error }) => {
+    if (error) setSyncStatus('同步失败：' + error.message, true);
+    else setSyncStatus('✓ 已同步 ' + new Date().toLocaleTimeString());
+  });
+}
+
+const pending = new Map();
+let saveTimer = null;
+function saveLine(i) {
+  saveAllLocal();
+  if (!sb) return;
+  pending.set(i, true);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    pending.forEach((_, idx) => { if (state[idx]) upsertLine(state[idx], idx); });
+    pending.clear();
+  }, 600);
+}
+
+async function loadFromSupabase() {
+  if (!sb) return;
+  const { data, error } = await sb.from('plan_lines').select('*').order('sort_order', { ascending: true });
+  if (error) { setSyncStatus('加载失败：' + error.message, true); return; }
+  const rows = (data || []).filter(r => !r.deleted);
+  rows.forEach(r => {
+    const li = state.find(l => l.id === r.line_id);
+    if (li) {
+      li.tSpend = num(r.t_spend);
+      li.tRoas = num(r.t_roas);
+      if (li.custom) li.name = r.line_name || li.name;
+    } else if (r.is_custom) {
+      state.push({ id: r.line_id, name: r.line_name || '', custom: true, s3:null,s7:null,s14:null,r3:null,r7:null,r14:null, tSpend: num(r.t_spend), tRoas: num(r.t_roas) });
+    }
+  });
+  build();
+  saveAllLocal();
+  setSyncStatus('✓ 已同步最新数据 ' + new Date().toLocaleTimeString());
+}
+
+function subscribeRealtime() {
+  if (!sb) return;
+  try {
+    sb.channel('plan_lines').on('postgres_changes', { event: '*', schema: 'public', table: 'plan_lines' }, () => {
+      clearTimeout(subscribeRealtime._t);
+      subscribeRealtime._t = setTimeout(() => loadFromSupabase(), 500);
+    }).subscribe();
+  } catch (e) {}
+}
+
+// ===== 密码门禁 =====
+async function sha256hex(str) {
+  if (window.crypto && crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let h = 0; for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) >>> 0; }
+  return 'fallback-' + h.toString(16);
+}
+function showGate() { document.getElementById('gate').classList.remove('hidden'); }
+function hideGate() { document.getElementById('gate').classList.add('hidden'); }
+
+async function boot() {
+  const configured = initSupabase();
+  if (!configured) {
+    loadLocal();
+    setDate(currentDate);
+    build();
+    setSyncStatus('本地模式（未连接云端）');
+    return;
+  }
+  setSyncStatus('已连接云端');
+  if (sessionStorage.getItem('fb-plan-unlocked') === '1') {
+    await loadFromSupabase();
+    subscribeRealtime();
+  } else {
+    showGate();
+  }
+}
+
+// ===== 事件绑定 =====
+document.getElementById('btnAdd').addEventListener('click', () => {
+  const id = (crypto.randomUUID && crypto.randomUUID()) || ('c' + Date.now() + Math.random().toString(36).slice(2));
+  state.push({ id, name: '', custom: true, s3: null, s7: null, s14: null, r3: null, r7: null, r14: null, tSpend: null, tRoas: null });
+  build(); saveAllLocal();
+  if (sb) upsertLine(state[state.length - 1], state.length - 1);
+  const inputs = document.querySelectorAll('input.name-inp');
+  const last = inputs[inputs.length - 1];
+  if (last) last.focus();
+  tbMsg('已增加一行，请填写产品线名称');
+});
+
+document.getElementById('tbody').addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t.classList.contains('inp') && !t.classList.contains('name-inp')) return;
+  const i = +t.dataset.i;
+  if (t.classList.contains('name-inp')) { state[i].name = t.value; }
+  else { state[i][t.dataset.f] = parseNum(t.value); }
+  renderSummary(); renderStats();
+  saveLine(i);
+  tbMsg('✓ 已自动保存');
+});
+
+document.getElementById('tbody').addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.classList.contains('del')) {
+    const i = +t.dataset.i;
+    if (state[i] && state[i].custom) {
+      const id = state[i].id;
+      state.splice(i, 1);
+      build(); saveAllLocal();
+      if (sb) sb.from('plan_lines').delete().eq('line_id', id).then(({ error }) => {
+        if (error) setSyncStatus('删除同步失败：' + error.message, true);
+        else setSyncStatus('✓ 已删除并同步');
+      });
+      tbMsg('已删除该行');
+    }
+  }
+});
+
+document.getElementById('datePick').addEventListener('change', (e) => {
+  const d = e.target.value;
+  if (!d) return;
+  if (d < SNAPSHOT_DATE) { tbMsg('最早可选 ' + SNAPSHOT_DATE); e.target.value = currentDate; return; }
+  if (d !== SNAPSHOT_DATE) tbMsg('该日期暂无新数据，仍显示 ' + SNAPSHOT_DATE + ' 快照（接入每日同步后自动切换）');
+  setDate(d);
+});
+
+document.getElementById('btnSync').addEventListener('click', async () => {
+  if (sb) await loadFromSupabase();
+  else tbMsg('本地模式，无需同步');
+});
+document.getElementById('btnCopyText').addEventListener('click', copyText);
+document.getElementById('btnCopyJson').addEventListener('click', copyJson);
+
+document.getElementById('btnEnter').addEventListener('click', async () => {
+  const v = document.getElementById('pwd').value;
+  if (!v) { document.getElementById('gateMsg').textContent = '请输入密码'; return; }
+  const h = await sha256hex(v);
+  if (h === CONFIG.PASSWORD_HASH) {
+    sessionStorage.setItem('fb-plan-unlocked', '1');
+    hideGate();
+    await loadFromSupabase();
+    subscribeRealtime();
+  } else {
+    document.getElementById('gateMsg').textContent = '密码错误';
+    document.getElementById('pwd').value = '';
+  }
+});
+document.getElementById('pwd').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btnEnter').click();
+});
+
+boot();
+</script>
+</body>
+</html>
