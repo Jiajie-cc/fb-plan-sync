@@ -38,9 +38,14 @@
     .tablewrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; }
     table.grid { border-collapse: collapse; width: 100%; min-width: 980px; }
     table.grid th, table.grid td { border: 1px solid #dfe6ee; padding: 6px 9px; font-size: 12px; }
-    table.grid thead th { background: linear-gradient(180deg, #3d82f0 0%, #2f6de1 100%); color: #fff; font-weight: 700; text-align: center; white-space: nowrap; letter-spacing: .2px; }
-    table.grid thead th.sub { background: #eaf2fe; color: #1d4ed8; font-weight: 600; }
+    table.grid thead th { background: #1F2D3D; color: #fff; font-weight: 700; text-align: center; white-space: nowrap; letter-spacing: .2px; }
+    table.grid thead th.sub { background: #ffffff; color: #1F2D3D; font-weight: 600; }
     table.grid thead th.lineh { text-align: left; }
+    table.grid th.drag { width: 30px; cursor: default; }
+    table.grid td.drag { width: 30px; text-align: center; color: #b4bec9; cursor: grab; user-select: none; font-size: 13px; }
+    table.grid td.drag:hover { color: #1F2D3D; }
+    table.grid tr.dragging { opacity: .45; }
+    table.grid tr.drop-target td { box-shadow: inset 0 2px 0 #1F2D3D; }
     table.grid td.line { text-align: left; white-space: nowrap; font-weight: 600; }
     table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     table.grid tbody tr:nth-child(even) td { background: #fafbfd; }
@@ -57,7 +62,7 @@
     .r2 { color: #1d9a4d; font-weight: 700; }
     .r3 { color: #0c7a3f; font-weight: 800; }
 
-    table.grid tfoot td { background: #eef3fb; font-weight: 700; border-top: 2px solid #c9d2dd; }
+    table.grid tfoot td { background: #f2f3f5; font-weight: 700; border-top: 2px solid #c9d2dd; }
     table.grid tfoot td.sum-label { text-align: left; }
 
     table.grid input.inp { border: 1px solid #c9d2dd; border-radius: 4px; padding: 3px 6px; font-size: 12px; width: 78px; text-align: right; font-family: inherit; background: #fffdf5; font-variant-numeric: tabular-nums; }
@@ -68,6 +73,9 @@
 
     .foot { margin-top: 14px; font-size: 11px; color: #8a97a5; line-height: 1.7; }
     .foot b { color: #5d6b7d; }
+
+    .preview-banner { display: none; background: #fff4e5; color: #9a6b00; border: 1px solid #f0d9a8; border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 12px; }
+    body.preview .preview-banner { display: block; }
 
     /* 访问密码门禁 */
     .gate { position: fixed; inset: 0; background: rgba(16,32,51,.55); display: flex; align-items: center; justify-content: center; z-index: 999; }
@@ -93,6 +101,7 @@
 </div>
 
 <div class="doc">
+  <div class="preview-banner">🧪 本地预览模式：改动只保存在本地浏览器、不会同步云端。确认效果后告诉我，我再上传到 GitHub（链接不变）。</div>
   <div class="topbar">
     <div>
       <h1>产品规划同步表</h1>
@@ -120,6 +129,7 @@
     <table class="grid">
       <thead>
         <tr>
+          <th class="drag" rowspan="2"></th>
           <th class="lineh" rowspan="2">产品线</th>
           <th colspan="3">当前日消耗</th>
           <th colspan="3">ROAS</th>
@@ -157,6 +167,7 @@ const CONFIG = {
   PASSWORD_HASH: '120f03496082d6a72aa1f00e51bd89b7e6f8e391367eb341e97e79fc713f0fd2'   // 访问密码 woodartdeal 的 SHA-256
 };
 const CLOUD_ON = CONFIG.SUPABASE_URL.indexOf('YOUR-PROJECT') !== 0;
+const IS_PREVIEW = location.protocol === 'file:' || location.search.indexOf('preview') !== -1;
 
 // 产品线数据（顺序与 fb-product-spend-lines.html 一致，截止 2026-08-12）
 // s3/s7/s14 = 3/7/14天平均日消耗；r3/r7/r14 = 3/7/14天加权ROAS；tSpend/tRoas = V4 目标
@@ -188,6 +199,7 @@ const SEED = [
 ];
 
 let state = SEED.map(l => Object.assign({ id: l.name, custom: false }, l));
+state.sort((a, b) => (b.s3 || 0) - (a.s3 || 0));   // 默认：近3天日消耗从高到低
 let currentDate = SNAPSHOT_DATE;
 
 // ===== Supabase 客户端 =====
@@ -245,7 +257,8 @@ function build() {
     const nameCell = l.custom
       ? '<input class="name-inp" data-i="' + i + '" type="text" value="' + esc(l.name) + '" placeholder="新产品线名称"> <button class="del" data-i="' + i + '" title="删除该行">×</button>'
       : esc(l.name);
-    html += '<tr>' +
+    html += '<tr data-i="' + i + '">' +
+      '<td class="drag" draggable="true" title="按住拖动排序">⋮⋮</td>' +
       '<td class="line">' + nameCell + '</td>' +
       '<td class="num">' + spendCell(l.s3, l.s3, l.s7) + '</td>' +
       '<td class="num">' + spendCell(l.s7, l.s7, l.s14) + '</td>' +
@@ -283,6 +296,7 @@ function renderSummary() {
 
   document.getElementById('tfoot').innerHTML =
     '<tr>' +
+    '<td></td>' +
     '<td class="sum-label">汇总 · 加权平均</td>' +
     '<td class="num">' + money(s3) + trendHtml(s3, s7) + '</td>' +
     '<td class="num">' + money(s7) + trendHtml(s7, s14) + '</td>' +
@@ -365,6 +379,13 @@ function loadLocal() {
           state.push(Object.assign({ s3:null,s7:null,s14:null,r3:null,r7:null,r14:null }, x, { id: x.id || ('c' + Math.random().toString(36).slice(2)) }));
         }
       });
+      // 恢复自定义顺序
+      const order = new Map(d.state.map((x, idx) => [x.id, idx]));
+      state.sort((a, b) => {
+        const ia = order.has(a.id) ? order.get(a.id) : 1e9;
+        const ib = order.has(b.id) ? order.get(b.id) : 1e9;
+        return ia - ib;
+      });
     }
   } catch (e) {}
 }
@@ -402,9 +423,19 @@ function saveLine(i) {
   }, 600);
 }
 
+function syncOrder() {
+  saveAllLocal();
+  if (!sb) return;
+  const rows = state.map((l, i) => lineRow(l, i));
+  sb.from('plan_lines').upsert(rows, { onConflict: 'line_id' }).then(({ error }) => {
+    if (error) setSyncStatus('同步失败：' + error.message, true);
+    else setSyncStatus('✓ 顺序已同步');
+  });
+}
+
 async function loadFromSupabase() {
   if (!sb) return;
-  const { data, error } = await sb.from('plan_lines').select('*').order('sort_order', { ascending: true });
+  const { data, error } = await sb.from('plan_lines').select('*');
   if (error) { setSyncStatus('加载失败：' + error.message, true); return; }
   const rows = (data || []).filter(r => !r.deleted);
   rows.forEach(r => {
@@ -417,6 +448,16 @@ async function loadFromSupabase() {
       state.push({ id: r.line_id, name: r.line_name || '', custom: true, s3:null,s7:null,s14:null,r3:null,r7:null,r14:null, tSpend: num(r.t_spend), tRoas: num(r.t_roas) });
     }
   });
+  // 恢复顺序（有人拖过顺序则按 sort_order，否则保持默认 3天消耗降序）
+  const ordered = rows.filter(r => r.sort_order !== null && r.sort_order !== undefined);
+  if (ordered.length > 0) {
+    const pos = new Map(ordered.map(r => [r.line_id, r.sort_order]));
+    state.sort((a, b) => {
+      const ia = pos.has(a.id) ? pos.get(a.id) : 1e9;
+      const ib = pos.has(b.id) ? pos.get(b.id) : 1e9;
+      return ia - ib;
+    });
+  }
   build();
   saveAllLocal();
   setSyncStatus('✓ 已同步最新数据 ' + new Date().toLocaleTimeString());
@@ -445,6 +486,14 @@ function showGate() { document.getElementById('gate').classList.remove('hidden')
 function hideGate() { document.getElementById('gate').classList.add('hidden'); }
 
 async function boot() {
+  if (IS_PREVIEW) {
+    loadLocal();
+    setDate(currentDate);
+    build();
+    setSyncStatus('本地预览模式（改动只存本地）');
+    document.body.classList.add('preview');
+    return;
+  }
   const configured = initSupabase();
   if (!configured) {
     loadLocal();
@@ -500,6 +549,46 @@ document.getElementById('tbody').addEventListener('click', (e) => {
       tbMsg('已删除该行');
     }
   }
+});
+
+let dragIndex = null;
+const tbodyEl = document.getElementById('tbody');
+tbodyEl.addEventListener('dragstart', (e) => {
+  const td = e.target.closest('td.drag');
+  if (!td) return;
+  const tr = td.closest('tr');
+  dragIndex = +tr.dataset.i;
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', String(dragIndex)); } catch (err) {}
+  tr.classList.add('dragging');
+});
+tbodyEl.addEventListener('dragover', (e) => {
+  if (dragIndex === null) return;
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('tr.drop-target').forEach(x => x.classList.remove('drop-target'));
+  tr.classList.add('drop-target');
+});
+tbodyEl.addEventListener('drop', (e) => {
+  if (dragIndex === null) return;
+  const tr = e.target.closest('tr');
+  if (!tr) { dragIndex = null; return; }
+  e.preventDefault();
+  const targetIndex = +tr.dataset.i;
+  if (targetIndex !== dragIndex) {
+    const [moved] = state.splice(dragIndex, 1);
+    state.splice(targetIndex, 0, moved);
+    build();
+    syncOrder();
+  }
+  dragIndex = null;
+  document.querySelectorAll('tr.drop-target').forEach(x => x.classList.remove('drop-target'));
+});
+tbodyEl.addEventListener('dragend', () => {
+  dragIndex = null;
+  document.querySelectorAll('tr.dragging, tr.drop-target').forEach(tr => tr.classList.remove('dragging', 'drop-target'));
 });
 
 document.getElementById('datePick').addEventListener('change', (e) => {
