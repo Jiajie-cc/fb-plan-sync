@@ -74,10 +74,7 @@
     .foot { margin-top: 14px; font-size: 11px; color: #8a97a5; line-height: 1.7; }
     .foot b { color: #5d6b7d; }
 
-    .preview-banner { display: none; background: #fff4e5; color: #9a6b00; border: 1px solid #f0d9a8; border-radius: 6px; padding: 8px 12px; font-size: 12px; margin-bottom: 12px; }
-    body.preview .preview-banner { display: block; }
-
-    /* 访问密码门禁 */
+    /* 登录门禁（密码由 Supabase 服务端校验，不写死在页面里） */
     .gate { position: fixed; inset: 0; background: rgba(16,32,51,.55); display: flex; align-items: center; justify-content: center; z-index: 999; }
     .gate.hidden { display: none; }
     .gate-card { background: #fff; border-radius: 12px; padding: 28px 32px; width: 320px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
@@ -93,7 +90,7 @@
 <div id="gate" class="gate hidden">
   <div class="gate-card">
     <h2>🔒 产品规划同步表</h2>
-    <p>请输入访问密码查看与编辑</p>
+    <p>请输入团队访问密码查看与编辑</p>
     <input type="password" id="pwd" placeholder="访问密码" autocomplete="off">
     <button id="btnEnter" type="button">进入</button>
     <div class="gate-msg" id="gateMsg"></div>
@@ -101,7 +98,6 @@
 </div>
 
 <div class="doc">
-  <div class="preview-banner">🧪 本地预览模式：改动只保存在本地浏览器、不会同步云端。确认效果后告诉我，我再上传到 GitHub（链接不变）。</div>
   <div class="topbar">
     <div>
       <h1>产品规划同步表</h1>
@@ -120,7 +116,8 @@
     <button id="btnAdd" class="primary" type="button">＋ 增加产品线</button>
     <button id="btnSync" type="button">🔄 立即同步</button>
     <button id="btnCopyText" type="button">📋 复制数据文本</button>
-    <button id="btnCopyJson" type="button">🧩 复制JSON（同步用）</button>
+    <button id="btnCopyJson" type="button">🧩 复制JSON</button>
+    <button id="btnLogout" type="button">↪ 退出登录</button>
     <span id="syncStatus" class="tb-msg"></span>
     <span id="tbMsg" class="tb-msg"></span>
   </div>
@@ -157,49 +154,18 @@
 </div>
 
 <script>
-const STORAGE_KEY = 'fb-line-roas-analysis-v1';
 const SNAPSHOT_DATE = '2026-08-12';
 
-// ===== 云端配置（部署时替换这 3 个值）=====
+// ===== 云端配置 =====
 const CONFIG = {
   SUPABASE_URL: 'https://mjwbividbdsmhsirnvhr.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qd2JpdmlkYmRzbWhzaXJudmhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTMxNzUsImV4cCI6MjEwMjY4OTE3NX0.zJyhhL62qsTFqhlu1hqsjKUeBMvgzuHoeOanknNVh6k',
-  PASSWORD_HASH: '120f03496082d6a72aa1f00e51bd89b7e6f8e391367eb341e97e79fc713f0fd2'   // 访问密码 woodartdeal 的 SHA-256
+  AUTH_EMAIL: 'wood@gmail.com'   // 固定共享账号（只当作用户名，公开无害；密码不在页面里）
 };
 const CLOUD_ON = CONFIG.SUPABASE_URL.indexOf('YOUR-PROJECT') !== 0;
-const IS_PREVIEW = location.protocol === 'file:' || location.search.indexOf('preview') !== -1;
 
-// 产品线数据（顺序与 fb-product-spend-lines.html 一致，截止 2026-08-12）
-// s3/s7/s14 = 3/7/14天平均日消耗；r3/r7/r14 = 3/7/14天加权ROAS；tSpend/tRoas = V4 目标
-const SEED = [
-  { name:'活边吧台桌', s3:450.01, s7:472.37, s14:513.39, r3:3.59, r7:2.12, r14:2.64, tSpend:550, tRoas:3.3 },
-  { name:'餐桌', s3:731.29, s7:725.71, s14:712.55, r3:4.38, r7:4.59, r14:4.15, tSpend:800, tRoas:3.8 },
-  { name:'浮木架', s3:259.77, s7:257.07, s14:214.04, r3:1.22, r7:1.97, r14:2.96, tSpend:400, tRoas:3 },
-  { name:'升降桌', s3:311.38, s7:307.11, s14:253.47, r3:5.71, r7:3.75, r14:3.67, tSpend:450, tRoas:3.6 },
-  { name:'威士忌边桌', s3:196.52, s7:200.7, s14:140.45, r3:1.48, r7:1.85, r14:2.46, tSpend:300, tRoas:3 },
-  { name:'吧台桌', s3:238.05, s7:260.42, s14:225.11, r3:0.6, r7:1.91, r14:2, tSpend:300, tRoas:3.3 },
-  { name:'工业风吧台桌 / 工业管吧台桌', s3:75.68, s7:75.59, s14:68.27, r3:3.39, r7:3.6, r14:2.91, tSpend:200, tRoas:3.3 },
-  { name:'悬浮桌 / 折叠桌', s3:139.65, s7:124.08, s14:90.28, r3:5.74, r7:4.49, r14:3.84, tSpend:300, tRoas:3.8 },
-  { name:'餐椅 / 凳椅', s3:215.06, s7:189.75, s14:158.6, r3:6.54, r7:6.52, r14:5.65, tSpend:400, tRoas:3.5 },
-  { name:'LED浮木架 / 浮木架灯', s3:61.7, s7:63.06, s14:51.12, r3:3.1, r7:3.69, r14:3.09, tSpend:200, tRoas:3 },
-  { name:'躺椅 / 软沙发', s3:40.47, s7:39.33, s14:43.01, r3:13.26, r7:5.85, r14:3.42, tSpend:100, tRoas:3.5 },
-  { name:'目录广告', s3:165.69, s7:172.7, s14:178.08, r3:1.48, r7:1.97, r14:2.8, tSpend:300, tRoas:3.2 },
-  { name:'书架', s3:65.84, s7:66.1, s14:54.93, r3:2.96, r7:1.86, r14:3.65, tSpend:100, tRoas:3 },
-  { name:'储物柜', s3:49.76, s7:54.53, s14:42.37, r3:0, r7:0.06, r14:2.29, tSpend:90, tRoas:2.8 },
-  { name:'Waterfall家具', s3:0, s7:0, s14:5.88, r3:null, r7:null, r14:0, tSpend:null, tRoas:null },
-  { name:'脚凳长凳', s3:0, s7:0, s14:3.32, r3:null, r7:null, r14:0, tSpend:null, tRoas:null },
-  { name:'玄关长凳鞋柜', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
-  { name:'餐车', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
-  { name:'活边家具', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:null, tRoas:null },
-  { name:'其他', s3:2.93, s7:21.64, s14:29.25, r3:0, r7:0, r14:0, tSpend:150, tRoas:2 },
-  { name:'餐盘', s3:20.8, s7:8.92, s14:4.46, r3:0, r7:0, r14:0, tSpend:60, tRoas:2.7 },
-  { name:'活边玄关桌', s3:19.2, s7:25.12, s14:16.63, r3:0, r7:1.01, r14:2.31, tSpend:80, tRoas:2.8 },
-  { name:'活边长凳', s3:0, s7:1.7, s14:0.85, r3:null, r7:0, r14:0, tSpend:120, tRoas:2.7 },
-  { name:'咖啡桌', s3:0, s7:0, s14:0, r3:null, r7:null, r14:null, tSpend:100, tRoas:2.5 }
-];
-
-let state = SEED.map(l => Object.assign({ id: l.name, custom: false }, l));
-state.sort((a, b) => (b.s3 || 0) - (a.s3 || 0));   // 默认：近3天日消耗从高到低
+// 产品线数据完全来自 Supabase（HTML 不写死任何业务数据）
+let state = [];
 let currentDate = SNAPSHOT_DATE;
 
 // ===== Supabase 客户端 =====
@@ -218,7 +184,11 @@ function setSyncStatus(s, isErr) {
   if (el) { el.textContent = s; el.style.color = isErr ? '#d5392f' : '#1d9a4d'; }
 }
 
-function num(v) { return (v === null || v === undefined || Number.isNaN(v)) ? null : v; }
+function num(v) {
+  if (v === null || v === undefined) return null;
+  const n = (typeof v === 'number') ? v : parseFloat(v);
+  return Number.isNaN(n) ? null : n;
+}
 function money(v) {
   if (v === null || v === undefined) return '—';
   return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -351,43 +321,13 @@ function copyText() {
 }
 
 function copyJson() {
-  copyToClipboard(JSON.stringify({ app: 'fb-plan-sync', date: currentDate, state }, null, 2), '已复制JSON，可用于同步');
+  copyToClipboard(JSON.stringify({ app: 'fb-plan-sync', date: currentDate, state }, null, 2), '已复制JSON');
 }
 
 function setDate(d) {
   currentDate = d;
   document.getElementById('datePick').value = d;
   document.getElementById('asof').textContent = '数据截止：' + d;
-  saveAllLocal();
-}
-
-// ===== 本地缓存（离线兜底）=====
-function saveAllLocal() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: currentDate, state })); } catch (e) {} }
-function loadLocal() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const d = JSON.parse(raw);
-    if (d && typeof d.date === 'string') currentDate = d.date;
-    if (d && Array.isArray(d.state) && d.state.length) {
-      d.state.forEach(x => {
-        const li = state.find(l => l.id === x.id || (l.custom === false && l.name === x.name));
-        if (li) {
-          ['tSpend', 'tRoas'].forEach(k => { if (x[k] !== undefined) li[k] = x[k]; });
-          if (li.custom && x.name) li.name = x.name;
-        } else if (x.custom) {
-          state.push(Object.assign({ s3:null,s7:null,s14:null,r3:null,r7:null,r14:null }, x, { id: x.id || ('c' + Math.random().toString(36).slice(2)) }));
-        }
-      });
-      // 恢复自定义顺序
-      const order = new Map(d.state.map((x, idx) => [x.id, idx]));
-      state.sort((a, b) => {
-        const ia = order.has(a.id) ? order.get(a.id) : 1e9;
-        const ib = order.has(b.id) ? order.get(b.id) : 1e9;
-        return ia - ib;
-      });
-    }
-  } catch (e) {}
 }
 
 // ===== Supabase 同步 =====
@@ -413,7 +353,6 @@ function upsertLine(l, index) {
 const pending = new Map();
 let saveTimer = null;
 function saveLine(i) {
-  saveAllLocal();
   if (!sb) return;
   pending.set(i, true);
   clearTimeout(saveTimer);
@@ -424,7 +363,6 @@ function saveLine(i) {
 }
 
 function syncOrder() {
-  saveAllLocal();
   if (!sb) return;
   const rows = state.map((l, i) => lineRow(l, i));
   sb.from('plan_lines').upsert(rows, { onConflict: 'line_id' }).then(({ error }) => {
@@ -435,31 +373,18 @@ function syncOrder() {
 
 async function loadFromSupabase() {
   if (!sb) return;
-  const { data, error } = await sb.from('plan_lines').select('*');
+  const { data, error } = await sb.from('plan_lines').select('*').order('sort_order', { ascending: true, nullsFirst: false });
   if (error) { setSyncStatus('加载失败：' + error.message, true); return; }
   const rows = (data || []).filter(r => !r.deleted);
-  rows.forEach(r => {
-    const li = state.find(l => l.id === r.line_id);
-    if (li) {
-      li.tSpend = num(r.t_spend);
-      li.tRoas = num(r.t_roas);
-      if (li.custom) li.name = r.line_name || li.name;
-    } else if (r.is_custom) {
-      state.push({ id: r.line_id, name: r.line_name || '', custom: true, s3:null,s7:null,s14:null,r3:null,r7:null,r14:null, tSpend: num(r.t_spend), tRoas: num(r.t_roas) });
-    }
-  });
-  // 恢复顺序（有人拖过顺序则按 sort_order，否则保持默认 3天消耗降序）
-  const ordered = rows.filter(r => r.sort_order !== null && r.sort_order !== undefined);
-  if (ordered.length > 0) {
-    const pos = new Map(ordered.map(r => [r.line_id, r.sort_order]));
-    state.sort((a, b) => {
-      const ia = pos.has(a.id) ? pos.get(a.id) : 1e9;
-      const ib = pos.has(b.id) ? pos.get(b.id) : 1e9;
-      return ia - ib;
-    });
-  }
+  state = rows.map(r => ({
+    id: r.line_id,
+    name: r.line_name || '',
+    custom: !!r.is_custom,
+    s3: num(r.s3), s7: num(r.s7), s14: num(r.s14),
+    r3: num(r.r3), r7: num(r.r7), r14: num(r.r14),
+    tSpend: num(r.t_spend), tRoas: num(r.t_roas)
+  }));
   build();
-  saveAllLocal();
   setSyncStatus('✓ 已同步最新数据 ' + new Date().toLocaleTimeString());
 }
 
@@ -473,37 +398,21 @@ function subscribeRealtime() {
   } catch (e) {}
 }
 
-// ===== 密码门禁 =====
-async function sha256hex(str) {
-  if (window.crypto && crypto.subtle) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  let h = 0; for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) >>> 0; }
-  return 'fallback-' + h.toString(16);
-}
+// ===== 登录门禁（Supabase Auth 服务端校验密码）=====
 function showGate() { document.getElementById('gate').classList.remove('hidden'); }
 function hideGate() { document.getElementById('gate').classList.add('hidden'); }
+function gateMsg(m) { document.getElementById('gateMsg').textContent = m; }
 
 async function boot() {
-  if (IS_PREVIEW) {
-    loadLocal();
-    setDate(currentDate);
-    build();
-    setSyncStatus('本地预览模式（改动只存本地）');
-    document.body.classList.add('preview');
-    return;
-  }
   const configured = initSupabase();
   if (!configured) {
-    loadLocal();
-    setDate(currentDate);
     build();
-    setSyncStatus('本地模式（未连接云端）');
+    setSyncStatus('未连接云端（请通过线上链接访问）');
     return;
   }
-  setSyncStatus('已连接云端');
-  if (sessionStorage.getItem('fb-plan-unlocked') === '1') {
+  const { data } = await sb.auth.getSession();
+  if (data && data.session) {
+    hideGate();
     await loadFromSupabase();
     subscribeRealtime();
   } else {
@@ -515,7 +424,7 @@ async function boot() {
 document.getElementById('btnAdd').addEventListener('click', () => {
   const id = (crypto.randomUUID && crypto.randomUUID()) || ('c' + Date.now() + Math.random().toString(36).slice(2));
   state.push({ id, name: '', custom: true, s3: null, s7: null, s14: null, r3: null, r7: null, r14: null, tSpend: null, tRoas: null });
-  build(); saveAllLocal();
+  build();
   if (sb) upsertLine(state[state.length - 1], state.length - 1);
   const inputs = document.querySelectorAll('input.name-inp');
   const last = inputs[inputs.length - 1];
@@ -541,7 +450,7 @@ document.getElementById('tbody').addEventListener('click', (e) => {
     if (state[i] && state[i].custom) {
       const id = state[i].id;
       state.splice(i, 1);
-      build(); saveAllLocal();
+      build();
       if (sb) sb.from('plan_lines').delete().eq('line_id', id).then(({ error }) => {
         if (error) setSyncStatus('删除同步失败：' + error.message, true);
         else setSyncStatus('✓ 已删除并同步');
@@ -606,18 +515,27 @@ document.getElementById('btnSync').addEventListener('click', async () => {
 document.getElementById('btnCopyText').addEventListener('click', copyText);
 document.getElementById('btnCopyJson').addEventListener('click', copyJson);
 
+document.getElementById('btnLogout').addEventListener('click', async () => {
+  if (sb) await sb.auth.signOut();
+  location.reload();
+});
+
 document.getElementById('btnEnter').addEventListener('click', async () => {
-  const v = document.getElementById('pwd').value;
-  if (!v) { document.getElementById('gateMsg').textContent = '请输入密码'; return; }
-  const h = await sha256hex(v);
-  if (h === CONFIG.PASSWORD_HASH) {
-    sessionStorage.setItem('fb-plan-unlocked', '1');
+  if (!sb) return;
+  const pwd = document.getElementById('pwd').value;
+  if (!pwd) { gateMsg('请输入密码'); return; }
+  const btn = document.getElementById('btnEnter');
+  btn.disabled = true; btn.textContent = '登录中…';
+  const { error } = await sb.auth.signInWithPassword({ email: CONFIG.AUTH_EMAIL, password: pwd });
+  btn.disabled = false; btn.textContent = '进入';
+  if (error) {
+    gateMsg('密码错误，请重试');
+    document.getElementById('pwd').value = '';
+  } else {
+    gateMsg('');
     hideGate();
     await loadFromSupabase();
     subscribeRealtime();
-  } else {
-    document.getElementById('gateMsg').textContent = '密码错误';
-    document.getElementById('pwd').value = '';
   }
 });
 document.getElementById('pwd').addEventListener('keydown', (e) => {
