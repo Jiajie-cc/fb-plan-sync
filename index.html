@@ -67,7 +67,15 @@
 
     table.grid input.inp { border: 1px solid #c9d2dd; border-radius: 4px; padding: 3px 6px; font-size: 12px; width: 78px; text-align: right; font-family: inherit; background: #fffdf5; font-variant-numeric: tabular-nums; }
     table.grid input.inp:focus { outline: none; border-color: #2f6de1; box-shadow: 0 0 0 2px rgba(47,109,225,.15); background: #fff; }
-    table.grid input.name-inp { border: 1px solid #c9d2dd; border-radius: 4px; padding: 3px 6px; font-size: 12px; width: 150px; font-family: inherit; }
+    table.grid input.name-inp { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: inherit; padding: 0; margin: 0; width: 150px; }
+    table.grid input.name-inp:focus { outline: none; border-bottom: 1px dashed #c9d2dd; }
+    table.grid td .badge.new { display: inline-block; margin-left: 5px; font-size: 10px; font-weight: 600; color: #0c7a3f; background: #e7f6ec; border: 1px solid #c3e7cf; border-radius: 3px; padding: 0 5px; line-height: 1.6; vertical-align: 1px; white-space: nowrap; }
+    .changenote { margin-top: 10px; font-size: 12px; color: #0c7a3f; background: #eefaf2; border: 1px solid #cde8d5; border-radius: 6px; padding: 8px 12px; }
+    table.grid tr.group-toggle td { background: #f2f5f9; color: #5d6b7d; font-weight: 700; font-size: 12px; cursor: pointer; padding: 7px 10px; border-top: 2px solid #dfe6ee; user-select: none; }
+    table.grid tr.group-toggle:hover td { background: #eaf0f7; }
+    .gt-arrow { display: inline-block; width: 16px; color: #2f6de1; }
+    table.grid tr.row-other td { background: #fbfcfe; }
+    table.grid tr.row-other.hidden { display: none; }
     table.grid button.del { border: none; background: none; color: #d5392f; cursor: pointer; font-size: 14px; padding: 0 3px; }
     table.grid button.del:hover { font-weight: 800; }
 
@@ -147,6 +155,8 @@
     </table>
   </div>
 
+  <div class="changenote" id="changeNote" style="display:none;"></div>
+
   <p class="foot">
     说明：<b>当前日消耗</b>＝该产品线在对应时间窗内的平均日消耗（3天/7天/14天）；<b>ROAS</b>＝对应窗口的加权 ROAS（Σ(ROAS×消耗)/Σ消耗）。<br>
     箭头对比：<span style="color:#1d9a4d">▲ 绿＝上升</span>、<span style="color:#d5392f">▼ 红＝下降</span>，3天列对比7天、7天列对比14天。<b>目标日消耗/目标ROAS</b>为多人共享编辑，填写即自动保存到云端，刷新即可看到他人更新。
@@ -165,7 +175,11 @@ const CONFIG = {
 const CLOUD_ON = CONFIG.SUPABASE_URL.indexOf('YOUR-PROJECT') !== 0;
 
 // 产品线数据完全来自 Supabase（HTML 不写死任何业务数据）
-let state = [];
+let registry = [];        // plan_lines：非自定义产品线（名称 + 目标 + 顺序 + 8.12 基准兜底）
+let customLines = [];     // plan_lines：手动新增的规划行（各日期都显示）
+let snapshots = [];       // plan_snapshots：按日期存每日指标
+let availableDates = [];  // 可选日期节点
+let state = [];           // 当前展示行
 let currentDate = SNAPSHOT_DATE;
 
 // ===== Supabase 客户端 =====
@@ -220,15 +234,27 @@ function spendCell(val, cur, base) {
   return money(val) + trendHtml(cur, base);
 }
 
+let otherCollapsed = false;
+
 function build() {
   const tbody = document.getElementById('tbody');
+  const otherTotal = state.filter(x => x.group === 'other').length;
   let html = '';
+  let headerDone = false;
   state.forEach((l, i) => {
+    if (l.group === 'other' && !headerDone) {
+      headerDone = true;
+      html += '<tr class="group-toggle" data-toggle="other"><td colspan="10">' +
+        '<span class="gt-arrow">' + (otherCollapsed ? '▸' : '▾') + '</span>' +
+        '其他产品线（未规划）· 共 ' + otherTotal + ' 条' +
+        '</td></tr>';
+    }
+    const isOther = l.group === 'other';
     const nameCell = l.custom
       ? '<input class="name-inp" data-i="' + i + '" type="text" value="' + esc(l.name) + '" placeholder="新产品线名称"> <button class="del" data-i="' + i + '" title="删除该行">×</button>'
-      : esc(l.name);
-    html += '<tr data-i="' + i + '">' +
-      '<td class="drag" draggable="true" title="按住拖动排序">⋮⋮</td>' +
+      : esc(l.name) + (l.isNew ? ' <span class="badge new">新增</span>' : '');
+    html += '<tr data-i="' + i + '"' + (isOther ? ' class="row-other' + (otherCollapsed ? ' hidden' : '') + '"' : '') + '>' +
+      '<td class="drag"' + (isOther ? '' : ' draggable="true"') + ' title="' + (isOther ? '' : '按住拖动排序') + '">' + (isOther ? '' : '⋮⋮') + '</td>' +
       '<td class="line">' + nameCell + '</td>' +
       '<td class="num">' + spendCell(l.s3, l.s3, l.s7) + '</td>' +
       '<td class="num">' + spendCell(l.s7, l.s7, l.s14) + '</td>' +
@@ -330,6 +356,103 @@ function setDate(d) {
   document.getElementById('asof').textContent = '数据截止：' + d;
 }
 
+function renderChangeNote() {
+  const el = document.getElementById('changeNote');
+  if (!el) return;
+  const news = state.filter(l => l.isNew).map(l => l.name);
+  if (news.length) {
+    el.style.display = 'block';
+    el.textContent = '本节点相比上一节点新增产品线：' + news.join('、') + '（共 ' + news.length + ' 条）；减少的产品线已自动从列表消失，可从金额对比直接看出。';
+  } else {
+    el.style.display = 'none';
+    el.textContent = '';
+  }
+}
+
+// 名称归一化：去掉「 / 别名」后缀（如「餐椅 / 凳椅」→「餐椅」），用于跨日期同名匹配
+function normName(n) { return String(n).split(' / ')[0].trim(); }
+
+function renderDate(d) {
+  setDate(d);
+  const snapFor = snapshots.filter(s => s.date === d);
+  const snapByName = new Map(snapFor.map(s => [normName(s.name), s]));
+  const useSnapshot = snapFor.length > 0;
+
+  // 8.12 有目标规划的产品线（严格按 8.12 顺序）；未规划的产品线 → 折叠到「其他产品线」
+  const planned = registry.filter(r => r.tSpend !== null && r.tSpend !== undefined);
+  const unplanned = registry.filter(r => r.tSpend === null || r.tSpend === undefined);
+  const matchedKeys = new Set();
+
+  const mainRows = [];
+  planned.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).forEach(r => {
+    const s = snapByName.get(normName(r.name));
+    if (useSnapshot) matchedKeys.add(normName(r.name));
+    mainRows.push({
+      id: r.id, name: r.name, custom: false, isNew: false, group: 'main',
+      s3: useSnapshot ? (s ? s.s3 : 0) : r.s3,
+      s7: useSnapshot ? (s ? s.s7 : 0) : r.s7,
+      s14: useSnapshot ? (s ? s.s14 : 0) : r.s14,
+      r3: useSnapshot ? (s ? s.r3 : null) : r.r3,
+      r7: useSnapshot ? (s ? s.r7 : null) : r.r7,
+      r14: useSnapshot ? (s ? s.r14 : null) : r.r14,
+      tSpend: r.tSpend, tRoas: r.tRoas
+    });
+  });
+
+  // 快照节点：新增产品线连续放在「其他」上面
+  const newRows = [];
+  if (useSnapshot) {
+    snapFor.filter(s => s.isNew).sort((a, b) => (a.sort || 0) - (b.sort || 0)).forEach(s => {
+      matchedKeys.add(normName(s.name));
+      newRows.push({
+        id: s.name, name: s.name, custom: false, isNew: true, group: 'main',
+        s3: s.s3, s7: s.s7, s14: s.s14, r3: s.r3, r7: s.r7, r14: s.r14,
+        tSpend: null, tRoas: null
+      });
+    });
+  }
+
+  // 未填写目标金额的产品线 → 「其他产品线」折叠组
+  const otherRows = [];
+  unplanned.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).forEach(r => {
+    const s = snapByName.get(normName(r.name));
+    if (useSnapshot) matchedKeys.add(normName(r.name));
+    otherRows.push({
+      id: r.id, name: r.name, custom: false, isNew: false, group: 'other',
+      s3: useSnapshot ? (s ? s.s3 : 0) : r.s3,
+      s7: useSnapshot ? (s ? s.s7 : 0) : r.s7,
+      s14: useSnapshot ? (s ? s.s14 : 0) : r.s14,
+      r3: useSnapshot ? (s ? s.r3 : null) : r.r3,
+      r7: useSnapshot ? (s ? s.r7 : null) : r.r7,
+      r14: useSnapshot ? (s ? s.r14 : null) : r.r14,
+      tSpend: null, tRoas: null
+    });
+  });
+  // 兜底：快照里仍未匹配到的行（非规划、非新增、非未规划）并入「其他」
+  if (useSnapshot) {
+    snapFor.forEach(s => {
+      if (!matchedKeys.has(normName(s.name))) {
+        otherRows.push({
+          id: s.name, name: s.name, custom: false, isNew: false, group: 'other',
+          s3: s.s3, s7: s.s7, s14: s.s14, r3: s.r3, r7: s.r7, r14: s.r14,
+          tSpend: null, tRoas: null
+        });
+      }
+    });
+  }
+
+  // 手动新增的自定义行 → 归入主列表
+  const customRows = customLines.map(r => ({
+    id: r.id, name: r.name, custom: true, isNew: false, group: 'main',
+    s3: null, s7: null, s14: null, r3: null, r7: null, r14: null,
+    tSpend: r.tSpend, tRoas: r.tRoas
+  }));
+
+  state = mainRows.concat(newRows).concat(customRows).concat(otherRows);
+  build();
+  renderChangeNote();
+}
+
 // ===== Supabase 同步 =====
 function lineRow(l, index) {
   return {
@@ -373,28 +496,59 @@ function syncOrder() {
 
 async function loadFromSupabase() {
   if (!sb) return;
-  const { data, error } = await sb.from('plan_lines').select('*').order('sort_order', { ascending: true, nullsFirst: false });
-  if (error) { setSyncStatus('加载失败：' + error.message, true); return; }
-  const rows = (data || []).filter(r => !r.deleted);
-  state = rows.map(r => ({
+  const { data: lines, error: e1 } = await sb.from('plan_lines').select('*').order('sort_order', { ascending: true, nullsFirst: false });
+  if (e1) { setSyncStatus('加载失败：' + e1.message, true); return; }
+  const rows = (lines || []).filter(r => !r.deleted);
+  registry = rows.filter(r => !r.is_custom).map(r => ({
     id: r.line_id,
     name: r.line_name || '',
-    custom: !!r.is_custom,
+    custom: false,
     s3: num(r.s3), s7: num(r.s7), s14: num(r.s14),
     r3: num(r.r3), r7: num(r.r7), r14: num(r.r14),
-    tSpend: num(r.t_spend), tRoas: num(r.t_roas)
+    tSpend: num(r.t_spend), tRoas: num(r.t_roas),
+    sort: r.sort_order
   }));
-  build();
+  customLines = rows.filter(r => r.is_custom).map(r => ({
+    id: r.line_id, name: r.line_name || '', custom: true,
+    tSpend: num(r.t_spend), tRoas: num(r.t_roas), sort: r.sort_order
+  }));
+
+  snapshots = [];
+  availableDates = [];
+  const { data: snaps, error: e2 } = await sb.from('plan_snapshots').select('*').order('snapshot_date', { ascending: true });
+  if (e2 || !snaps || snaps.length === 0) {
+    // 云端尚无快照 → 只显示 8.12 基准
+    availableDates = [SNAPSHOT_DATE];
+    const pick = document.getElementById('datePick');
+    if (pick) pick.min = SNAPSHOT_DATE;
+    renderDate(SNAPSHOT_DATE);
+    setSyncStatus('云端尚未有 8.26 快照，请先运行迁移 SQL');
+    return;
+  } else {
+    snapshots = snaps.map(s => ({
+      date: s.snapshot_date,
+      name: s.line_name,
+      s3: num(s.s3), s7: num(s.s7), s14: num(s.s14),
+      r3: num(s.r3), r7: num(s.r7), r14: num(s.r14),
+      isNew: !!s.is_new,
+      sort: s.sort_order
+    }));
+    availableDates = [...new Set(snapshots.map(s => s.date))].sort();
+  }
+
+  const pick = document.getElementById('datePick');
+  if (pick) pick.min = availableDates[0] || SNAPSHOT_DATE;
+  const target = availableDates.length ? availableDates[availableDates.length - 1] : SNAPSHOT_DATE;
+  renderDate(target);
   setSyncStatus('✓ 已同步最新数据 ' + new Date().toLocaleTimeString());
 }
 
 function subscribeRealtime() {
   if (!sb) return;
   try {
-    sb.channel('plan_lines').on('postgres_changes', { event: '*', schema: 'public', table: 'plan_lines' }, () => {
-      clearTimeout(subscribeRealtime._t);
-      subscribeRealtime._t = setTimeout(() => loadFromSupabase(), 500);
-    }).subscribe();
+    const reload = () => { clearTimeout(subscribeRealtime._t); subscribeRealtime._t = setTimeout(() => loadFromSupabase(), 500); };
+    sb.channel('plan_lines').on('postgres_changes', { event: '*', schema: 'public', table: 'plan_lines' }, reload).subscribe();
+    sb.channel('plan_snapshots').on('postgres_changes', { event: '*', schema: 'public', table: 'plan_snapshots' }, reload).subscribe();
   } catch (e) {}
 }
 
@@ -423,9 +577,11 @@ async function boot() {
 // ===== 事件绑定 =====
 document.getElementById('btnAdd').addEventListener('click', () => {
   const id = (crypto.randomUUID && crypto.randomUUID()) || ('c' + Date.now() + Math.random().toString(36).slice(2));
-  state.push({ id, name: '', custom: true, s3: null, s7: null, s14: null, r3: null, r7: null, r14: null, tSpend: null, tRoas: null });
+  const row = { id, name: '', custom: true, s3: null, s7: null, s14: null, r3: null, r7: null, r14: null, tSpend: null, tRoas: null };
+  state.push(row);
+  customLines.push({ id, name: '', custom: true, tSpend: null, tRoas: null });
   build();
-  if (sb) upsertLine(state[state.length - 1], state.length - 1);
+  if (sb) upsertLine(row, state.length - 1);
   const inputs = document.querySelectorAll('input.name-inp');
   const last = inputs[inputs.length - 1];
   if (last) last.focus();
@@ -436,20 +592,28 @@ document.getElementById('tbody').addEventListener('input', (e) => {
   const t = e.target;
   if (!t.classList.contains('inp') && !t.classList.contains('name-inp')) return;
   const i = +t.dataset.i;
-  if (t.classList.contains('name-inp')) { state[i].name = t.value; }
-  else { state[i][t.dataset.f] = parseNum(t.value); }
+  if (t.classList.contains('name-inp')) {
+    state[i].name = t.value;
+    const cl = customLines.find(c => c.id === state[i].id);
+    if (cl) cl.name = t.value;
+  } else {
+    state[i][t.dataset.f] = parseNum(t.value);
+  }
   renderSummary(); renderStats();
   saveLine(i);
   tbMsg('✓ 已自动保存');
 });
 
 document.getElementById('tbody').addEventListener('click', (e) => {
+  const tg = e.target.closest('.group-toggle');
+  if (tg) { otherCollapsed = !otherCollapsed; build(); return; }
   const t = e.target;
   if (t.classList.contains('del')) {
     const i = +t.dataset.i;
     if (state[i] && state[i].custom) {
       const id = state[i].id;
       state.splice(i, 1);
+      customLines = customLines.filter(c => c.id !== id);
       build();
       if (sb) sb.from('plan_lines').delete().eq('line_id', id).then(({ error }) => {
         if (error) setSyncStatus('删除同步失败：' + error.message, true);
@@ -474,7 +638,7 @@ tbodyEl.addEventListener('dragstart', (e) => {
 tbodyEl.addEventListener('dragover', (e) => {
   if (dragIndex === null) return;
   const tr = e.target.closest('tr');
-  if (!tr) return;
+  if (!tr || tr.classList.contains('row-other') || tr.classList.contains('group-toggle')) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
   document.querySelectorAll('tr.drop-target').forEach(x => x.classList.remove('drop-target'));
@@ -483,7 +647,7 @@ tbodyEl.addEventListener('dragover', (e) => {
 tbodyEl.addEventListener('drop', (e) => {
   if (dragIndex === null) return;
   const tr = e.target.closest('tr');
-  if (!tr) { dragIndex = null; return; }
+  if (!tr || tr.classList.contains('row-other') || tr.classList.contains('group-toggle')) { dragIndex = null; return; }
   e.preventDefault();
   const targetIndex = +tr.dataset.i;
   if (targetIndex !== dragIndex) {
@@ -503,9 +667,14 @@ tbodyEl.addEventListener('dragend', () => {
 document.getElementById('datePick').addEventListener('change', (e) => {
   const d = e.target.value;
   if (!d) return;
-  if (d < SNAPSHOT_DATE) { tbMsg('最早可选 ' + SNAPSHOT_DATE); e.target.value = currentDate; return; }
-  if (d !== SNAPSHOT_DATE) tbMsg('该日期暂无新数据，仍显示 ' + SNAPSHOT_DATE + ' 快照（接入每日同步后自动切换）');
-  setDate(d);
+  if (d < (availableDates[0] || SNAPSHOT_DATE)) { tbMsg('最早可选 ' + (availableDates[0] || SNAPSHOT_DATE)); e.target.value = currentDate; return; }
+  if (availableDates.includes(d)) {
+    renderDate(d);
+    tbMsg('已切换到 ' + d + ' 节点');
+  } else {
+    e.target.value = currentDate;
+    tbMsg('该日期暂无数据，仍显示 ' + currentDate + ' 节点');
+  }
 });
 
 document.getElementById('btnSync').addEventListener('click', async () => {
