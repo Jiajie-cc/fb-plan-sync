@@ -415,8 +415,10 @@ function renderDate(d) {
   // 未填写目标金额的产品线 → 「其他产品线」折叠组
   const otherRows = [];
   unplanned.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0)).forEach(r => {
-    const s = snapByName.get(normName(r.name));
-    if (useSnapshot) matchedKeys.add(normName(r.name));
+    const key = normName(r.name);
+    if (useSnapshot && matchedKeys.has(key)) return; // 8.26 新增线已在主列表，跳过避免重复
+    const s = snapByName.get(key);
+    if (useSnapshot) matchedKeys.add(key);
     otherRows.push({
       id: r.id, name: r.name, custom: false, isNew: false, group: 'other',
       s3: useSnapshot ? (s ? s.s3 : 0) : r.s3,
